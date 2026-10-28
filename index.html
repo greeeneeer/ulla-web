@@ -200,21 +200,32 @@ void main() {
   }
   o = vec4(c, 1.0);
 }`;
-// 아이폰 7 모드: 호박빛 번짐(스크린 합성), 살짝 밝게, 검은색 아주 살짝 들뜨게, 흰색은 크림빛으로.
+// 아이폰 7 모드: 앱(Core Image)과 같은 계산 순서. 노출·번짐·색 행렬은 선형 빛에서, 톤 커브는 sRGB 값에서 한다.
 const FINAL = `#version 300 es
-precision mediump float;
-in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; out vec4 o;
+precision highp float;
+in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; uniform float gain; out vec4 o;
+vec3 toLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
+vec3 toSrgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+float curve(float x) {
+  if (x < 0.25) return mix(0.02, 0.25, x / 0.25);
+  if (x < 0.5) return mix(0.25, 0.52, (x - 0.25) / 0.25);
+  if (x < 0.75) return mix(0.52, 0.78, (x - 0.5) / 0.25);
+  return mix(0.78, 1.0, (x - 0.75) / 0.25);
+}
 void main() {
   vec3 c = texture(src, uv).rgb;
   if (look > 0.5) {
-    vec3 g = texture(glow, suv).rgb * vec3(0.55, 0.42, 0.25);
-    c = 1.0 - (1.0 - c) * (1.0 - clamp(g, 0.0, 1.0));
-    c = pow(c, vec3(0.9));
-    c = 0.02 + c * 0.98;
-    c *= vec3(1.04, 1.01, 0.89);
+    vec3 lin = toLin(c) * gain;
+    vec3 g = toLin(texture(glow, suv).rgb) * vec3(0.55, 0.42, 0.25);
+    lin = 1.0 - (1.0 - clamp(lin, 0.0, 1.0)) * (1.0 - clamp(g, 0.0, 1.0));
+    c = toSrgb(lin);
+    c = vec3(curve(c.r), curve(c.g), curve(c.b));
+    c = toSrgb(toLin(c) * vec3(1.04, 1.01, 0.89));
   }
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
+// 앱이 카메라 노출을 +0.3 EV 올리는 것을 선형 빛에 곱해 흉내 낸다.
+let EV_GAIN = Math.pow(2, 0.3);
 
 function program(fs) {
   const make = (type, src) => {
@@ -299,7 +310,7 @@ function draw() {
   }
   pass(progs.final, null, w, h, (u) => {
     bind(0, videoTex, u("src")); bind(1, glowA.tex, u("glow"));
-    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("look"), settings.look ? 1 : 0);
+    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("look"), settings.look ? 1 : 0); gl.uniform1f(u("gain"), EV_GAIN);
   });
   return true;
 }
