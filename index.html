@@ -374,45 +374,71 @@ const video = document.createElement("video");
 video.playsInline = true; video.muted = true; video.setAttribute("playsinline", "");
 let stream = null;
 let mode = "photo";         // "photo" | "video"
-let lens = "wide";          // 후면에서 "ultra"면 0.5× 초광각 렌즈
+let lens = "wide";          // 후면에서 "ultra"면 0.5× 초광각 렌즈 (렌즈 확대를 못 쓸 때)
 let digitalZoom = 1;        // 1~5, 가운데를 잘라 키운다
 let ultraWideId = null;     // Safari가 알려 주는 후면 초광각 카메라
+let multiCamId = null;      // 초광각까지 묶인 후면 카메라 (트리플·듀얼 광각)
+let hwZoom = null;          // 카메라 렌즈 확대 범위 {min, max}. 0.5까지 되면 렌즈가 알아서 바뀐다
+let hwValue = 1;            // 지금 렌즈 확대 값 (화면 배율과 같음)
 
 async function openCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   // 동영상은 긴 변 1920으로 가볍게, 사진은 가장 크게 받는다.
   const big = mode === "photo";
   const size = big ? { width: { ideal: 4032 }, height: { ideal: 3024 } } : { width: { ideal: 1920 }, height: { ideal: 1440 } };
-  const useUltra = facing === "environment" && lens === "ultra" && ultraWideId;
-  stream = await navigator.mediaDevices.getUserMedia({
-    audio: mode === "video",
-    video: { ...(useUltra ? { deviceId: { exact: ultraWideId } } : { facingMode: facing }), ...size, aspectRatio: { ideal: 4 / 3 } },
-  }).catch((e) => {
-    // 마이크를 거절해도 소리 없이 찍을 수 있게 한 번 더 시도한다.
-    if (mode !== "video") throw e;
-    return navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: facing, ...size } });
-  });
+  const back = facing === "environment";
+  const pick = back && lens === "ultra" && ultraWideId ? { deviceId: { exact: ultraWideId } }
+    : back && multiCamId ? { deviceId: { exact: multiCamId } }
+    : { facingMode: facing };
+  const open = (audio, which) => navigator.mediaDevices.getUserMedia({ audio, video: { ...which, ...size, aspectRatio: { ideal: 4 / 3 } } });
+  stream = await open(mode === "video", pick)
+    // 마이크를 거절했거나 고른 카메라가 안 열리면 기본 카메라로 한 번 더 시도한다.
+    .catch(() => open(mode === "video", { facingMode: facing }))
+    .catch((e) => { if (mode !== "video") throw e; return open(false, { facingMode: facing }); });
   video.srcObject = new MediaStream(stream.getVideoTracks());
   await video.play();
-  if (!ultraWideId) await findUltraWide();
+  const hadMultiCam = !!multiCamId;
+  await findCameras();
+  // 처음 후면을 열 때는 묶인 카메라를 아직 몰랐으니, 찾았으면 그걸로 다시 연다.
+  if (back && !hadMultiCam && multiCamId && lens !== "ultra") return openCamera();
+  setupHwZoom();
   updateInfo();
   updateZoom();
 }
 
-/// 카메라 이름에 '울트라 와이드'가 있는 후면 카메라를 찾는다 (권한을 받은 뒤에야 이름이 보인다).
-async function findUltraWide() {
+/// 후면 카메라 목록에서 초광각과, 초광각까지 묶인 카메라를 찾는다 (권한을 받은 뒤에야 이름이 보인다).
+async function findCameras() {
   try {
-    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
-    const ultra = cams.find((d) => /ultra|울트라|초광각/i.test(d.label) && !/front|전면/i.test(d.label));
-    ultraWideId = ultra ? ultra.deviceId : null;
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput" && !/front|전면/i.test(d.label));
+    const find = (re) => (cams.find((d) => re.test(d.label)) || {}).deviceId || null;
+    ultraWideId = find(/ultra|울트라|초광각/i);
+    multiCamId = find(/triple|트리플/i) || find(/dual wide|듀얼 광각|듀얼 와이드/i);
   } catch {}
+}
+
+/// 카메라가 렌즈 확대를 지원하면 그걸 쓴다. 0.5까지 내려가면 초광각 렌즈로 알아서 바뀐다.
+function setupHwZoom() {
+  hwZoom = null; hwValue = 1;
+  const track = stream.getVideoTracks()[0];
+  const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+  if (facing !== "environment" || lens === "ultra" || !caps.zoom || !(caps.zoom.max > caps.zoom.min)) return;
+  // 렌즈 확대가 0.5까지 안 내려가면 초광각 카메라를 따로 여는 쪽을 쓴다.
+  if (caps.zoom.min > 0.55 && ultraWideId) return;
+  hwZoom = { min: caps.zoom.min, max: Math.min(caps.zoom.max, 10) };
+  applyHwZoom(1);
+}
+function applyHwZoom(v) {
+  hwValue = Math.min(hwZoom.max, Math.max(hwZoom.min, v));
+  const track = stream.getVideoTracks()[0];
+  track.applyConstraints({ advanced: [{ zoom: hwValue }] }).catch(() => {});
 }
 
 // ---- 확대 ----
 function zoomPresets() {
+  if (hwZoom) return [0.5, 1, 2, 3].filter((p) => p >= hwZoom.min - 0.01 && p <= Math.max(2, hwZoom.max) + 0.01);
   return facing === "environment" && ultraWideId ? [0.5, 1, 2] : [1, 2];
 }
-function shownZoom() { return (lens === "ultra" ? 0.5 : 1) * digitalZoom; }
+function shownZoom() { return hwZoom ? hwValue * digitalZoom : (lens === "ultra" ? 0.5 : 1) * digitalZoom; }
 function zoomLabel(z) { return z < 1 || Math.abs(z - Math.round(z)) > 0.05 ? z.toFixed(1) : String(Math.round(z)); }
 function updateZoom() {
   const box = $("zoom");
@@ -428,6 +454,12 @@ function updateZoom() {
   box.hidden = false;
 }
 async function setZoom(z) {
+  if (hwZoom) {
+    // 렌즈로 되는 만큼 확대하고, 그 위는 가운데를 잘라 키운다.
+    applyHwZoom(z);
+    digitalZoom = Math.min(5, Math.max(1, z / hwValue));
+    return updateZoom();
+  }
   const wantUltra = z < 1 && ultraWideId && facing === "environment";
   const nextLens = wantUltra ? "ultra" : "wide";
   digitalZoom = Math.min(5, Math.max(1, wantUltra ? z / 0.5 : z));
@@ -442,19 +474,21 @@ async function setZoom(z) {
   let startDist = 0, startZoom = 1;
   const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   view.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 2) { startDist = dist(e.touches); startZoom = digitalZoom; }
+    if (e.touches.length === 2) { startDist = dist(e.touches); startZoom = hwZoom ? shownZoom() : digitalZoom; }
   }, { passive: true });
   view.addEventListener("touchmove", (e) => {
     if (e.touches.length !== 2 || !startDist) return;
     e.preventDefault();
-    digitalZoom = Math.min(5, Math.max(1, startZoom * dist(e.touches) / startDist));
+    const z = startZoom * dist(e.touches) / startDist;
+    if (hwZoom) return setZoom(Math.min(hwZoom.max * 5, Math.max(hwZoom.min, z)));
+    digitalZoom = Math.min(5, Math.max(1, z));
     updateZoom();
   }, { passive: false });
   view.addEventListener("touchend", () => { startDist = 0; });
 }
 
 function loop() {
-  draw();
+  if (draw() && recCanvas) drawRotated(recCanvas, recRotation);
   if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(loop);
   else requestAnimationFrame(loop);
 }
@@ -605,6 +639,15 @@ function showResult(file, info) {
 // ---- 동영상: 필터가 걸린 화면(캔버스)을 그대로 녹화한다 ----
 const canRecord = typeof view.captureStream === "function" && typeof MediaRecorder !== "undefined";
 let recorder = null, recStart = 0, recTimer = 0;
+// 폰을 가로로 들고 찍으면 화면을 돌려 그린 캔버스를 녹화해서 가로 동영상으로 만든다.
+let recCanvas = null, recRotation = 0;
+
+function drawRotated(canvas, rotation) {
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, canvas.width / 2, canvas.height / 2);
+  ctx.rotate(-rotation * Math.PI / 180);
+  ctx.drawImage(view, -view.width / 2, -view.height / 2);
+}
 
 function setMode(next) {
   if (next === mode || recorder) return;
@@ -624,18 +667,27 @@ function pickMime() {
 
 function toggleRecording() {
   if (recorder) { recorder.stop(); return; }
-  const out = view.captureStream(30);
+  recRotation = (deviceAngle - screenAngle() + 360) % 360;
+  if (recRotation) {
+    const sideways = recRotation === 90 || recRotation === 270;
+    recCanvas = document.createElement("canvas");
+    recCanvas.width = sideways ? view.height : view.width;
+    recCanvas.height = sideways ? view.width : view.height;
+    drawRotated(recCanvas, recRotation);
+  }
+  const out = (recCanvas || view).captureStream(30);
   stream.getAudioTracks().forEach((t) => out.addTrack(t));
   const mime = pickMime();
   try { recorder = new MediaRecorder(out, mime ? { mimeType: mime } : undefined); }
-  catch { $("info").textContent = "이 브라우저에서는 동영상을 찍을 수 없어요."; return; }
+  catch { if (recCanvas) { release(recCanvas); recCanvas = null; } $("info").textContent = "이 브라우저에서는 동영상을 찍을 수 없어요."; return; }
   const chunks = [];
-  const w = view.width, h = view.height;
+  const w = (recCanvas || view).width, h = (recCanvas || view).height;
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   recorder.onstop = () => {
     const seconds = Math.round((performance.now() - recStart) / 1000);
     const type = recorder.mimeType || mime || "video/mp4";
     recorder = null;
+    if (recCanvas) { release(recCanvas); recCanvas = null; }
     clearInterval(recTimer);
     $("rec").hidden = true;
     $("shutter").classList.remove("recording");
