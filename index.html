@@ -343,7 +343,38 @@ function showGate(text, button) {
   $("start").hidden = !button;
 }
 
+// ---- 폰을 얼마나 돌려 들었는지 (화면 회전 잠금 중에도 가로 사진을 가로로 저장하려고) ----
+// 중력 방향으로 판단한다. 센서 부호가 기기마다 반대일 수 있어서, 세로로 들었을 때의 y 부호로 맞춘다.
+let upSign = /iPhone|iPad|iPod/.test(navigator.userAgent) ? -1 : 1;
+let upCalibrated = false;
+let deviceAngle = 0; // 0 세로, 90 위쪽이 왼쪽, 270 위쪽이 오른쪽, 180 거꾸로
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity;
+  if (!a || a.x == null || a.y == null) return;
+  const g = 9.81, x = a.x, y = a.y;
+  // 처음 세로로 똑바로 든 순간에 한 번만 맞춘다 (거꾸로 든 걸 기준으로 착각하지 않게).
+  if (!upCalibrated && Math.abs(y) > 0.75 * g && Math.abs(x) < 0.35 * g && screenAngle() === 0) {
+    upSign = Math.sign(y); upCalibrated = true;
+  }
+  if (Math.abs(x) > 0.6 * g && Math.abs(x) > Math.abs(y)) deviceAngle = Math.sign(x) === upSign ? 90 : 270;
+  else if (Math.abs(y) > 0.6 * g) deviceAngle = Math.sign(y) === upSign ? 0 : 180;
+}
+function screenAngle() {
+  const a = screen.orientation?.angle ?? window.orientation ?? 0;
+  return ((a % 360) + 360) % 360;
+}
+function startMotion() {
+  const listen = () => window.addEventListener("devicemotion", onMotion);
+  // iOS는 센서 권한을 버튼 누를 때 바로 물어야 한다.
+  if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+    DeviceMotionEvent.requestPermission().then((s) => s === "granted" && listen()).catch(() => {});
+  } else {
+    listen();
+  }
+}
+
 $("start").addEventListener("click", async () => {
+  startMotion();
   try {
     await openCamera();
     $("gate").hidden = true;
@@ -366,16 +397,21 @@ $("flip").addEventListener("click", async () => {
 // ---- 찍기와 저장 ----
 let lastFile = null, lastURL = null;
 
-function encode(canvas) {
+/// rotation: 화면에 보이는 그림을 시계 반대 방향으로 몇 도 돌려 저장할지 (0, 90, 180, 270).
+function encode(canvas, rotation) {
   const long = Math.max(canvas.width, canvas.height);
+  const s = settings.small && long > 2048 ? 2048 / long : 1;
   let src = canvas;
-  if (settings.small && long > 2048) {
-    const s = 2048 / long;
+  if (s !== 1 || rotation) {
+    const w = Math.round(canvas.width * s), h = Math.round(canvas.height * s);
+    const sideways = rotation === 90 || rotation === 270;
     src = document.createElement("canvas");
-    src.width = Math.round(canvas.width * s); src.height = Math.round(canvas.height * s);
+    src.width = sideways ? h : w; src.height = sideways ? w : h;
     const ctx = src.getContext("2d");
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(canvas, 0, 0, src.width, src.height);
+    ctx.translate(src.width / 2, src.height / 2);
+    ctx.rotate(-rotation * Math.PI / 180);
+    ctx.drawImage(canvas, -w / 2, -h / 2, w, h);
   }
   return new Promise((resolve) => src.toBlob((b) => resolve({ blob: b, w: src.width, h: src.height }), "image/jpeg", settings.small ? 0.5 : 0.92));
 }
@@ -389,7 +425,7 @@ $("shutter").addEventListener("click", async () => {
   const flash = $("flash");
   flash.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.remove("on")));
   $("shutter").disabled = true;
-  const { blob, w, h } = await encode(view);
+  const { blob, w, h } = await encode(view, (deviceAngle - screenAngle() + 360) % 360);
   $("shutter").disabled = false;
   if (!blob) { lastInfo = "저장하지 못했어요"; updateInfo(); return; }
 
