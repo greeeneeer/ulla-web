@@ -187,7 +187,7 @@ function updateInfo() {
 updateInfo();
 
 // ---- WebGL: 미리보기와 저장을 같은 셰이더로 그린다 ----
-const gl = view.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false, premultipliedAlpha: false });
+const gl = view.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false, alpha: false });
 
 const VERT = `#version 300 es
 in vec2 p; uniform float mirror; out vec2 uv; out vec2 suv;
@@ -426,6 +426,30 @@ $("flip").addEventListener("click", async () => {
 let lastFile = null, lastURL = null;
 
 /// rotation: 화면에 보이는 그림을 시계 반대 방향으로 몇 도 돌려 저장할지 (0, 90, 180, 270).
+/// 방금 그린 화면을 픽셀로 읽어 일반 캔버스로 옮긴다.
+/// WebGL 캔버스를 바로 이미지로 내보내면 일부 iOS에서 검은 사진이 나와서 이렇게 우회한다.
+function snapshot() {
+  const w = view.width, h = view.height;
+  const px = new Uint8Array(w * h * 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  if (gl.isContextLost() || px[3] === 0) return null;
+  // WebGL은 아래 줄부터 읽혀서 위아래를 뒤집는다.
+  const row = w * 4, tmp = new Uint8Array(row);
+  for (let top = 0, bottom = (h - 1) * row; top < bottom; top += row, bottom -= row) {
+    tmp.set(px.subarray(top, top + row));
+    px.copyWithin(top, bottom, bottom + row);
+    px.set(tmp, bottom);
+  }
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px.buffer), w, h), 0, 0);
+  return c;
+}
+
+/// 다 쓴 캔버스의 메모리를 바로 돌려준다 (iOS는 캔버스 메모리 한도가 작다).
+function release(canvas) { canvas.width = 0; canvas.height = 0; }
+
 function encode(canvas, rotation) {
   const long = Math.max(canvas.width, canvas.height);
   const s = settings.small && long > 2048 ? 2048 / long : 1;
@@ -441,7 +465,11 @@ function encode(canvas, rotation) {
     ctx.rotate(-rotation * Math.PI / 180);
     ctx.drawImage(canvas, -w / 2, -h / 2, w, h);
   }
-  return new Promise((resolve) => src.toBlob((b) => resolve({ blob: b, w: src.width, h: src.height }), "image/jpeg", settings.small ? 0.5 : 0.92));
+  return new Promise((resolve) => src.toBlob((b) => {
+    const result = { blob: b, w: src.width, h: src.height };
+    if (src !== canvas) release(src);
+    resolve(result);
+  }, "image/jpeg", settings.small ? 0.5 : 0.92));
 }
 
 function sizeText(bytes) {
@@ -452,10 +480,16 @@ $("shutter").addEventListener("click", async () => {
   if (!draw()) return;
   const flash = $("flash");
   flash.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.remove("on")));
+  const shot = snapshot();
+  if (!shot) {
+    $("info").textContent = "사진을 만들지 못했어요. 페이지를 새로고침한 뒤 다시 찍어 주세요.";
+    return;
+  }
   $("shutter").disabled = true;
-  const { blob, w, h } = await encode(view, (deviceAngle - screenAngle() + 360) % 360);
+  const { blob, w, h } = await encode(shot, (deviceAngle - screenAngle() + 360) % 360);
+  release(shot);
   $("shutter").disabled = false;
-  if (!blob) { $("info").textContent = "사진을 만들지 못했어요. 다시 찍어 주세요."; return; }
+  if (!blob) { $("info").textContent = "사진을 만들지 못했어요. '용량 줄이기'를 켜고 다시 찍어 주세요."; return; }
 
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   lastFile = new File([blob], `ulla-${stamp}.jpg`, { type: "image/jpeg" });
