@@ -74,13 +74,31 @@ button:disabled { opacity: .4; cursor: default; }
   padding: 12px 22px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 700;
 }
 
-.tint-row {
+.ev-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 20px 0; font-size: 13px; font-weight: 600;
 }
-.tint-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
-.tint-row .pink { color: #ff9cc0; }
-.tint-row .yellow { color: #ffd166; }
+.ev-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.ev-row output { width: 2.6em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.zoom {
+  position: absolute; left: 0; right: 0; bottom: 12px;
+  display: flex; justify-content: center; gap: 6px; pointer-events: none;
+}
+.zoom button {
+  pointer-events: auto; min-width: 34px; height: 34px; padding: 0 6px; border-radius: 999px;
+  background: rgba(0, 0, 0, .55); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.zoom button[aria-pressed="true"] { color: var(--accent); }
+.rec {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  padding: 4px 10px; border-radius: 999px; background: #e5383b; color: #fff;
+  font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.modes { display: flex; justify-content: center; gap: 24px; padding-top: 14px; }
+.modes button { font-size: 14px; font-weight: 600; color: var(--muted); }
+.modes button[aria-pressed="true"] { color: var(--accent); }
+.shutter.video { background-color: #e5383b; }
+.shutter.recording { background-color: #e5383b; padding: 18px; }
 .info { text-align: center; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; padding: 10px 16px 12px; min-height: 1.4em; }
 .bottom { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 28px; }
 .thumb { width: 52px; height: 52px; border-radius: 10px; background: var(--surface) center / cover no-repeat; justify-self: start; }
@@ -98,7 +116,7 @@ button:disabled { opacity: .4; cursor: default; }
   display: flex; flex-direction: column; gap: 14px;
   padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(20px, env(safe-area-inset-bottom, 0px));
 }
-.sheet img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+.sheet img, .sheet video { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
 .sheet .row { display: flex; gap: 10px; }
 .sheet .row button { flex: 1; padding: 14px; border-radius: 14px; background: var(--surface); font-weight: 700; }
 .sheet .row .primary { background: var(--accent); }
@@ -119,19 +137,21 @@ button:disabled { opacity: .4; cursor: default; }
   <main class="stage">
     <canvas id="view" width="960" height="1280"></canvas>
     <div class="flash" id="flash"></div>
+    <div class="zoom" id="zoom" hidden></div>
+    <div class="rec" id="rec" hidden>● 0:00</div>
     <div class="gate" id="gate">
-      <strong>보정 없이 찍는 카메라</strong>
+      <strong>후보정 없이 찍는 카메라</strong>
       <p id="gate-text">카메라 영상의 한 장면을 그대로 저장해요. 기본 카메라처럼 여러 장을 합성하지 않아요.</p>
       <button class="primary" id="start">카메라 켜기</button>
     </div>
   </main>
 
-  <div class="tint-row" id="tint-row" hidden>
-    <span class="pink" aria-hidden="true">핑크</span>
-    <input type="range" id="tint" min="-1" max="1" step="0.1" value="0" aria-label="색감: 핑크에서 노랑까지">
-    <span class="yellow" aria-hidden="true">노랑</span>
+  <div class="ev-row" id="ev-row" hidden>
+    <label for="ev">노출</label>
+    <input type="range" id="ev" min="-0.5" max="1.5" step="0.1" value="0.3">
+    <output id="ev-val" for="ev">+0.3</output>
   </div>
-  <div class="info" id="info">보정 없이 찍은 그대로 저장돼요</div>
+  <div class="info" id="info">기본카메라 후보정 없이 그대로 저장돼요</div>
   <footer class="bottom">
     <button class="thumb" id="thumb" aria-label="마지막 사진 보기" disabled></button>
     <button class="shutter" id="shutter" aria-label="찍기" disabled></button>
@@ -139,10 +159,15 @@ button:disabled { opacity: .4; cursor: default; }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><path d="M9.5 13a2.5 2.5 0 0 1 4.6-1.3M14.5 13a2.5 2.5 0 0 1-4.6 1.3"/><path d="M14.4 10.2l-.3 1.5 1.5.1M9.6 15.8l.3-1.5-1.5-.1"/></svg>
     </button>
   </footer>
+  <nav class="modes" id="modes" hidden>
+    <button id="m-photo" aria-pressed="true">사진</button>
+    <button id="m-video" aria-pressed="false">동영상</button>
+  </nav>
 </div>
 
 <div class="sheet" id="sheet" hidden>
   <img id="shot" alt="찍은 사진">
+  <video id="clip" controls playsinline hidden></video>
   <p class="meta" id="shot-info"></p>
   <p class="hint" id="sheet-hint">'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요.</p>
   <div class="row">
@@ -157,9 +182,9 @@ const $ = (id) => document.getElementById(id);
 const view = $("view");
 
 // ---- 설정 (이 기기에만 기억) ----
-const settings = { look: false, mirror: true, small: false, tint: 0 };
+const settings = { look: false, mirror: true, small: false, ev: 0.3 };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("ulla") || "{}")); } catch {}
-delete settings.glow;
+delete settings.glow; delete settings.tint;
 function saveSettings() { try { localStorage.setItem("ulla", JSON.stringify(settings)); } catch {} }
 function bindToggle(id, key) {
   const el = $(id);
@@ -171,9 +196,12 @@ bindToggle("t-look", "look");
 bindToggle("t-mirror", "mirror");
 bindToggle("t-small", "small");
 {
-  const slider = $("tint");
-  const sync = () => { slider.value = settings.tint; };
-  slider.addEventListener("input", () => { settings.tint = Number(slider.value); saveSettings(); });
+  const slider = $("ev");
+  const sync = () => {
+    slider.value = settings.ev;
+    $("ev-val").textContent = (settings.ev >= 0 ? "+" : "") + Number(settings.ev).toFixed(1);
+  };
+  slider.addEventListener("input", () => { settings.ev = Number(slider.value); saveSettings(); sync(); });
   sync();
 }
 
@@ -181,8 +209,8 @@ let facing = "user";
 let lastInfo = null;
 function updateInfo() {
   $("t-mirror").disabled = facing !== "user";
-  $("tint-row").hidden = !settings.look;
-  $("info").textContent = (settings.look ? "아이폰 7 느낌으로 저장돼요" : "보정 없이 찍은 그대로 저장돼요");
+  $("ev-row").hidden = !settings.look;
+  $("info").textContent = (settings.look ? "아이폰 7 느낌으로 저장돼요" : "기본카메라 후보정 없이 그대로 저장돼요");
 }
 updateInfo();
 
@@ -190,10 +218,12 @@ updateInfo();
 const gl = view.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false, alpha: false });
 
 const VERT = `#version 300 es
-in vec2 p; uniform float mirror; out vec2 uv; out vec2 suv;
+in vec2 p; uniform float mirror; uniform float zoom; out vec2 uv; out vec2 suv;
 void main() {
   suv = p * 0.5 + 0.5;
-  uv = vec2(mirror > 0.5 ? 1.0 - suv.x : suv.x, suv.y);
+  // 디지털 확대: 가운데를 잘라 키운다.
+  vec2 z = 0.5 + (suv - 0.5) / max(zoom, 1.0);
+  uv = vec2(mirror > 0.5 ? 1.0 - z.x : z.x, z.y);
   gl_Position = vec4(p, 0.0, 1.0);
 }`;
 // 밝은 부분만 뽑아 작은 화면에 내려 그린다.
@@ -225,7 +255,7 @@ void main() {
 // 아이폰 7 모드: 앱(Core Image)과 같은 계산 순서. 노출·번짐·색 행렬은 선형 빛에서, 톤 커브는 sRGB 값에서 한다.
 const FINAL = `#version 300 es
 precision highp float;
-in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; uniform float gain; uniform vec3 tintM; out vec4 o;
+in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; uniform float gain; out vec4 o;
 vec3 toLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 vec3 toSrgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
 float curve(float x) {
@@ -242,18 +272,10 @@ void main() {
     lin = 1.0 - (1.0 - clamp(lin, 0.0, 1.0)) * (1.0 - clamp(g, 0.0, 1.0));
     c = toSrgb(lin);
     c = vec3(curve(c.r), curve(c.g), curve(c.b));
-    c = toSrgb(toLin(clamp(c, 0.0, 1.0)) * tintM);
+    c = toSrgb(toLin(clamp(c, 0.0, 1.0)) * vec3(1.04, 1.01, 0.89));
   }
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
-// 색감 슬라이더 값을 R·G·B 배율로 (앱과 같은 값). 0은 크림빛, -1은 분홍빛, 1은 노란빛.
-function tintMatrix(t) {
-  const base = [1.04, 1.01, 0.89], end = t < 0 ? [1.07, 0.94, 0.97] : [1.06, 1.03, 0.78];
-  const k = Math.min(Math.abs(t), 1);
-  return base.map((b, i) => b + (end[i] - b) * k);
-}
-// 앱이 카메라 노출을 +0.3 EV 올리는 것을 선형 빛에 곱해 흉내 낸다.
-let EV_GAIN = Math.pow(2, 0.3);
 
 function program(fs) {
   const make = (type, src) => {
@@ -328,17 +350,21 @@ function draw() {
 
   if (settings.look) {
     pass(progs.extract, glowA.fb, glowA.w, glowA.h, (u) => {
-      bind(0, videoTex, u("src")); gl.uniform1f(u("mirror"), mirror); gl.uniform2f(u("texel"), 1 / w, 1 / h);
+      bind(0, videoTex, u("src")); gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("zoom"), digitalZoom);
+      gl.uniform2f(u("texel"), 1 / w, 1 / h);
     });
     for (const [from, to, dx, dy] of [[glowA, glowB, 1, 0], [glowB, glowA, 0, 1]]) {
       pass(progs.blur, to.fb, to.w, to.h, (u) => {
-        bind(0, from.tex, u("src")); gl.uniform1f(u("mirror"), 0); gl.uniform2f(u("dir"), dx * 1.3 / to.w, dy * 1.3 / to.h);
+        bind(0, from.tex, u("src")); gl.uniform1f(u("mirror"), 0); gl.uniform1f(u("zoom"), 1);
+        gl.uniform2f(u("dir"), dx * 1.3 / to.w, dy * 1.3 / to.h);
       });
     }
   }
   pass(progs.final, null, w, h, (u) => {
     bind(0, videoTex, u("src")); bind(1, glowA.tex, u("glow"));
-    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("look"), settings.look ? 1 : 0); gl.uniform1f(u("gain"), EV_GAIN); gl.uniform3fv(u("tintM"), tintMatrix(settings.tint));
+    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("zoom"), digitalZoom);
+    // 찍은 뒤 빛에 2^노출을 곱한다 (앱과 같은 방식). 클수록 밝은 곳이 더 넓게 하얗게 날아간다.
+    gl.uniform1f(u("look"), settings.look ? 1 : 0); gl.uniform1f(u("gain"), Math.pow(2, settings.ev));
   });
   return true;
 }
@@ -347,16 +373,84 @@ function draw() {
 const video = document.createElement("video");
 video.playsInline = true; video.muted = true; video.setAttribute("playsinline", "");
 let stream = null;
+let mode = "photo";         // "photo" | "video"
+let lens = "wide";          // 후면에서 "ultra"면 0.5× 초광각 렌즈
+let digitalZoom = 1;        // 1~5, 가운데를 잘라 키운다
+let ultraWideId = null;     // Safari가 알려 주는 후면 초광각 카메라
 
 async function openCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
+  // 동영상은 긴 변 1920으로 가볍게, 사진은 가장 크게 받는다.
+  const big = mode === "photo";
+  const size = big ? { width: { ideal: 4032 }, height: { ideal: 3024 } } : { width: { ideal: 1920 }, height: { ideal: 1440 } };
+  const useUltra = facing === "environment" && lens === "ultra" && ultraWideId;
   stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: { facingMode: facing, width: { ideal: 4032 }, height: { ideal: 3024 }, aspectRatio: { ideal: 4 / 3 } },
+    audio: mode === "video",
+    video: { ...(useUltra ? { deviceId: { exact: ultraWideId } } : { facingMode: facing }), ...size, aspectRatio: { ideal: 4 / 3 } },
+  }).catch((e) => {
+    // 마이크를 거절해도 소리 없이 찍을 수 있게 한 번 더 시도한다.
+    if (mode !== "video") throw e;
+    return navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: facing, ...size } });
   });
-  video.srcObject = stream;
+  video.srcObject = new MediaStream(stream.getVideoTracks());
   await video.play();
+  if (!ultraWideId) await findUltraWide();
   updateInfo();
+  updateZoom();
+}
+
+/// 카메라 이름에 '울트라 와이드'가 있는 후면 카메라를 찾는다 (권한을 받은 뒤에야 이름이 보인다).
+async function findUltraWide() {
+  try {
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const ultra = cams.find((d) => /ultra|울트라|초광각/i.test(d.label) && !/front|전면/i.test(d.label));
+    ultraWideId = ultra ? ultra.deviceId : null;
+  } catch {}
+}
+
+// ---- 확대 ----
+function zoomPresets() {
+  return facing === "environment" && ultraWideId ? [0.5, 1, 2] : [1, 2];
+}
+function shownZoom() { return (lens === "ultra" ? 0.5 : 1) * digitalZoom; }
+function zoomLabel(z) { return z < 1 || Math.abs(z - Math.round(z)) > 0.05 ? z.toFixed(1) : String(Math.round(z)); }
+function updateZoom() {
+  const box = $("zoom");
+  const presets = zoomPresets(), z = shownZoom();
+  const active = [...presets].reverse().find((p) => p <= z + 0.01) ?? presets[0];
+  box.replaceChildren(...presets.map((p) => {
+    const b = document.createElement("button");
+    b.setAttribute("aria-pressed", String(p === active));
+    b.textContent = p === active ? zoomLabel(z) + "×" : zoomLabel(p);
+    b.addEventListener("click", () => setZoom(p));
+    return b;
+  }));
+  box.hidden = false;
+}
+async function setZoom(z) {
+  const wantUltra = z < 1 && ultraWideId && facing === "environment";
+  const nextLens = wantUltra ? "ultra" : "wide";
+  digitalZoom = Math.min(5, Math.max(1, wantUltra ? z / 0.5 : z));
+  if (nextLens !== lens) {
+    lens = nextLens;
+    if (!recorder) await openCamera().catch(() => {});
+  }
+  updateZoom();
+}
+// 두 손가락으로 벌리고 오므려 확대한다 (지금 렌즈 안에서 디지털로).
+{
+  let startDist = 0, startZoom = 1;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  view.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) { startDist = dist(e.touches); startZoom = digitalZoom; }
+  }, { passive: true });
+  view.addEventListener("touchmove", (e) => {
+    if (e.touches.length !== 2 || !startDist) return;
+    e.preventDefault();
+    digitalZoom = Math.min(5, Math.max(1, startZoom * dist(e.touches) / startDist));
+    updateZoom();
+  }, { passive: false });
+  view.addEventListener("touchend", () => { startDist = 0; });
 }
 
 function loop() {
@@ -407,6 +501,7 @@ $("start").addEventListener("click", async () => {
     await openCamera();
     $("gate").hidden = true;
     $("shutter").disabled = false; $("flip").disabled = false;
+    $("modes").hidden = !canRecord;
     loop();
   } catch (e) {
     showGate(e && e.name === "NotAllowedError"
@@ -418,6 +513,7 @@ $("start").addEventListener("click", async () => {
 $("flip").addEventListener("click", async () => {
   $("flip").disabled = true;
   facing = facing === "user" ? "environment" : "user";
+  lens = "wide"; digitalZoom = 1;
   try { await openCamera(); } catch { facing = facing === "user" ? "environment" : "user"; await openCamera().catch(() => {}); }
   $("flip").disabled = false;
 });
@@ -477,6 +573,7 @@ function sizeText(bytes) {
 }
 
 $("shutter").addEventListener("click", async () => {
+  if (mode === "video") return toggleRecording();
   if (!draw()) return;
   const flash = $("flash");
   flash.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.remove("on")));
@@ -492,27 +589,91 @@ $("shutter").addEventListener("click", async () => {
   if (!blob) { $("info").textContent = "사진을 만들지 못했어요. '용량 줄이기'를 켜고 다시 찍어 주세요."; return; }
 
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-  lastFile = new File([blob], `ulla-${stamp}.jpg`, { type: "image/jpeg" });
-  if (lastURL) URL.revokeObjectURL(lastURL);
-  lastURL = URL.createObjectURL(blob);
-  lastInfo = `${w}×${h} · ${sizeText(blob.size)}`;
-  $("thumb").style.backgroundImage = `url(${lastURL})`;
-  $("thumb").disabled = false;
-  openSheet();
+  showResult(new File([blob], `ulla-${stamp}.jpg`, { type: "image/jpeg" }), `${w}×${h} · ${sizeText(blob.size)}`);
 });
 
+function showResult(file, info) {
+  lastFile = file;
+  if (lastURL) URL.revokeObjectURL(lastURL);
+  lastURL = URL.createObjectURL(file);
+  lastInfo = info;
+  if (file.type.startsWith("image/")) $("thumb").style.backgroundImage = `url(${lastURL})`;
+  $("thumb").disabled = false;
+  openSheet();
+}
+
+// ---- 동영상: 필터가 걸린 화면(캔버스)을 그대로 녹화한다 ----
+const canRecord = typeof view.captureStream === "function" && typeof MediaRecorder !== "undefined";
+let recorder = null, recStart = 0, recTimer = 0;
+
+function setMode(next) {
+  if (next === mode || recorder) return;
+  mode = next;
+  $("m-photo").setAttribute("aria-pressed", String(mode === "photo"));
+  $("m-video").setAttribute("aria-pressed", String(mode === "video"));
+  $("shutter").classList.toggle("video", mode === "video");
+  $("shutter").setAttribute("aria-label", mode === "video" ? "녹화 시작" : "찍기");
+  openCamera().catch(() => {});
+}
+$("m-photo").addEventListener("click", () => setMode("photo"));
+$("m-video").addEventListener("click", () => setMode("video"));
+
+function pickMime() {
+  return ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
+}
+
+function toggleRecording() {
+  if (recorder) { recorder.stop(); return; }
+  const out = view.captureStream(30);
+  stream.getAudioTracks().forEach((t) => out.addTrack(t));
+  const mime = pickMime();
+  try { recorder = new MediaRecorder(out, mime ? { mimeType: mime } : undefined); }
+  catch { $("info").textContent = "이 브라우저에서는 동영상을 찍을 수 없어요."; return; }
+  const chunks = [];
+  const w = view.width, h = view.height;
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => {
+    const seconds = Math.round((performance.now() - recStart) / 1000);
+    const type = recorder.mimeType || mime || "video/mp4";
+    recorder = null;
+    clearInterval(recTimer);
+    $("rec").hidden = true;
+    $("shutter").classList.remove("recording");
+    $("flip").disabled = false;
+    const blob = new Blob(chunks, { type });
+    if (!blob.size) { $("info").textContent = "동영상을 만들지 못했어요. 다시 찍어 주세요."; return; }
+    const ext = type.includes("webm") ? "webm" : "mp4";
+    const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+    showResult(new File([blob], `ulla-${stamp}.${ext}`, { type: type.split(";")[0] }), `${w}×${h} · ${seconds}초 · ${sizeText(blob.size)}`);
+  };
+  recorder.start(1000);
+  recStart = performance.now();
+  $("rec").hidden = false; $("rec").textContent = "● 0:00";
+  recTimer = setInterval(() => {
+    const s = Math.floor((performance.now() - recStart) / 1000);
+    $("rec").textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }, 500);
+  $("shutter").classList.add("recording");
+  $("flip").disabled = true;
+}
+
 function openSheet() {
-  $("shot").src = lastURL;
+  const isVideo = lastFile.type.startsWith("video/");
+  $("shot").hidden = isVideo;
+  $("clip").hidden = !isVideo;
+  if (isVideo) { $("clip").src = lastURL; $("shot").removeAttribute("src"); }
+  else { $("shot").src = lastURL; $("clip").pause(); $("clip").removeAttribute("src"); }
   $("shot-info").textContent = lastInfo;
   const canShare = navigator.canShare && navigator.canShare({ files: [lastFile] });
   $("save").hidden = !canShare;
+  $("save").textContent = isVideo ? "동영상 저장" : "사진에 저장";
   $("sheet-hint").textContent = canShare
-    ? "'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요."
-    : "사진을 길게 눌러 '사진 앱에 저장'을 고르세요.";
+    ? (isVideo ? "'동영상 저장'을 누르고 공유 창에서 '동영상 저장'을 고르세요." : "'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요.")
+    : (isVideo ? "이 브라우저에서는 바로 저장할 수 없어요." : "사진을 길게 눌러 '사진 앱에 저장'을 고르세요.");
   $("sheet").hidden = false;
 }
 $("thumb").addEventListener("click", () => lastFile && openSheet());
-$("close").addEventListener("click", () => { $("sheet").hidden = true; });
+$("close").addEventListener("click", () => { $("sheet").hidden = true; $("clip").pause(); });
 $("save").addEventListener("click", async () => {
   try { await navigator.share({ files: [lastFile] }); $("sheet").hidden = true; } catch {}
 });
