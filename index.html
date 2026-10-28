@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="울라">
+<meta name="theme-color" content="#0d0b0a">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<title>울라</title>
+<style>
+/* 한 화면짜리 카메라: 위 버튼줄, 3:4 미리보기, 아래 셔터줄. 카메라 앱이라 어두운 화면 하나로 고정. */
+:root {
+  --bg: #0d0b0a;
+  --surface: #1d1916;
+  --fg: #f6efe6;
+  --muted: #a39686;
+  --accent: #f2b56b;
+  --accent-ink: #2a1a08;
+  --warn: #f5d76e;
+  --font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 var(--font); }
+body { overflow: hidden; user-select: none; -webkit-user-select: none; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .4; cursor: default; }
+
+.app {
+  height: 100%;
+  display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.top {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+}
+.top h1 { margin: 0 auto 0 0; font-size: 17px; font-weight: 700; letter-spacing: .02em; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 12px; border-radius: 999px;
+  background: var(--surface); font-size: 14px; font-weight: 600;
+}
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.stage {
+  position: relative; flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+#view {
+  display: block; max-width: 100%; max-height: 100%;
+  width: auto; height: auto;
+  background: #000;
+}
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s ease-out; }
+.flash.on { opacity: .8; transition: none; }
+
+.gate {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center; background: var(--bg);
+}
+.gate p { margin: 0; max-width: 30ch; color: var(--muted); }
+.gate strong { color: var(--fg); font-size: 18px; }
+.primary {
+  padding: 12px 22px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 700;
+}
+
+.info { text-align: center; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; padding: 10px 16px 12px; min-height: 1.4em; }
+.bottom { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 28px; }
+.thumb { width: 52px; height: 52px; border-radius: 10px; background: var(--surface) center / cover no-repeat; justify-self: start; }
+.shutter {
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 4px solid var(--fg); padding: 4px; background-clip: content-box; background-color: var(--fg);
+  transition: transform .1s;
+}
+.shutter:active { transform: scale(.94); }
+.flip { width: 52px; height: 52px; border-radius: 50%; background: var(--surface); justify-self: end; display: grid; place-items: center; }
+.flip svg { width: 26px; height: 26px; }
+
+.sheet {
+  position: fixed; inset: 0; z-index: 5; background: rgba(13, 11, 10, .96);
+  display: flex; flex-direction: column; gap: 14px;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(20px, env(safe-area-inset-bottom, 0px));
+}
+.sheet img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+.sheet .row { display: flex; gap: 10px; }
+.sheet .row button { flex: 1; padding: 14px; border-radius: 14px; background: var(--surface); font-weight: 700; }
+.sheet .row .primary { background: var(--accent); }
+.sheet .hint { margin: 0; text-align: center; color: var(--muted); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .flash, .shutter { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>울라</h1>
+    <button class="chip" id="t-look" aria-pressed="false">☀ 7</button>
+    <button class="chip" id="t-mirror" aria-pressed="true">거울</button>
+    <button class="chip" id="t-small" aria-pressed="false">작게</button>
+  </header>
+
+  <main class="stage">
+    <canvas id="view" width="960" height="1280"></canvas>
+    <div class="flash" id="flash"></div>
+    <div class="gate" id="gate">
+      <strong>보정 없이 찍는 카메라</strong>
+      <p id="gate-text">카메라 영상의 한 장면을 그대로 저장해요. 기본 카메라처럼 여러 장을 합성하지 않아요.</p>
+      <button class="primary" id="start">카메라 켜기</button>
+    </div>
+  </main>
+
+  <div class="info" id="info">보정 없이 찍은 그대로 저장돼요</div>
+  <footer class="bottom">
+    <button class="thumb" id="thumb" aria-label="마지막 사진 보기" disabled></button>
+    <button class="shutter" id="shutter" aria-label="찍기" disabled></button>
+    <button class="flip" id="flip" aria-label="전면·후면 바꾸기" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><path d="M9.5 13a2.5 2.5 0 0 1 4.6-1.3M14.5 13a2.5 2.5 0 0 1-4.6 1.3"/><path d="M14.4 10.2l-.3 1.5 1.5.1M9.6 15.8l.3-1.5-1.5-.1"/></svg>
+    </button>
+  </footer>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <img id="shot" alt="찍은 사진">
+  <p class="hint" id="sheet-hint">'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요.</p>
+  <div class="row">
+    <button id="close">닫기</button>
+    <button class="primary" id="save">사진에 저장</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const view = $("view");
+
+// ---- 설정 (이 기기에만 기억) ----
+const settings = { look: false, mirror: true, small: false };
+try { Object.assign(settings, JSON.parse(localStorage.getItem("ulla") || "{}")); } catch {}
+function saveSettings() { try { localStorage.setItem("ulla", JSON.stringify(settings)); } catch {} }
+function bindToggle(id, key) {
+  const el = $(id);
+  const sync = () => el.setAttribute("aria-pressed", String(settings[key]));
+  el.addEventListener("click", () => { settings[key] = !settings[key]; saveSettings(); sync(); updateInfo(); });
+  sync();
+}
+bindToggle("t-look", "look");
+bindToggle("t-mirror", "mirror");
+bindToggle("t-small", "small");
+
+let facing = "user";
+let lastInfo = null;
+function updateInfo() {
+  $("t-mirror").disabled = facing !== "user";
+  $("info").textContent = lastInfo ?? (settings.look ? "아이폰 7 느낌으로 저장돼요" : "보정 없이 찍은 그대로 저장돼요");
+}
+updateInfo();
+
+// ---- WebGL: 미리보기와 저장을 같은 셰이더로 그린다 ----
+const gl = view.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false, premultipliedAlpha: false });
+
+const VERT = `#version 300 es
+in vec2 p; uniform float mirror; out vec2 uv; out vec2 suv;
+void main() {
+  suv = p * 0.5 + 0.5;
+  uv = vec2(mirror > 0.5 ? 1.0 - suv.x : suv.x, suv.y);
+  gl_Position = vec4(p, 0.0, 1.0);
+}`;
+// 밝은 부분만 뽑아 작은 화면에 내려 그린다.
+const EXTRACT = `#version 300 es
+precision mediump float;
+in vec2 uv; in vec2 suv; uniform sampler2D src; uniform vec2 texel; out vec4 o;
+void main() {
+  // 8×8 칸을 4×4로 훑어 작은 조명도 놓치지 않는다. 칸 안에서 가장 밝은 값 쪽으로 기울여 모은다.
+  vec3 sum = vec3(0.0);
+  for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+    vec3 c = texture(src, uv + texel * vec2(float(x) * 2.0 - 3.0, float(y) * 2.0 - 3.0)).rgb;
+    float l = dot(c, vec3(0.299, 0.587, 0.114));
+    sum += c * smoothstep(0.7, 1.0, l);
+  }
+  o = vec4(min(sum * 0.25, vec3(1.0)), 1.0);
+}`;
+const BLUR = `#version 300 es
+precision mediump float;
+in vec2 suv; uniform sampler2D src; uniform vec2 dir; out vec4 o;
+void main() {
+  float w[5] = float[](0.204, 0.180, 0.124, 0.066, 0.028);
+  vec3 c = texture(src, suv).rgb * w[0];
+  for (int i = 1; i < 5; i++) {
+    c += texture(src, suv + dir * float(i)).rgb * w[i];
+    c += texture(src, suv - dir * float(i)).rgb * w[i];
+  }
+  o = vec4(c, 1.0);
+}`;
+// 아이폰 7 모드: 호박빛 번짐(스크린 합성), 살짝 밝게, 검은색 아주 살짝 들뜨게, 흰색은 크림빛으로.
+const FINAL = `#version 300 es
+precision mediump float;
+in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; out vec4 o;
+void main() {
+  vec3 c = texture(src, uv).rgb;
+  if (look > 0.5) {
+    vec3 g = texture(glow, suv).rgb * vec3(0.55, 0.42, 0.25);
+    c = 1.0 - (1.0 - c) * (1.0 - clamp(g, 0.0, 1.0));
+    c = pow(c, vec3(0.9));
+    c = 0.02 + c * 0.98;
+    c *= vec3(1.04, 1.01, 0.89);
+  }
+  o = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`;
+
+function program(fs) {
+  const make = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, make(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(p, make(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, "p");
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = (n) => gl.getUniformLocation(p, n);
+  return { p, u };
+}
+function texture() {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function target(w, h) {
+  const tex = texture();
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  return { tex, fb, w, h };
+}
+
+let progs, videoTex, glowA, glowB;
+function setupGL() {
+  progs = { extract: program(EXTRACT), blur: program(BLUR), final: program(FINAL) };
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  videoTex = texture();
+}
+function resizeTargets(w, h) {
+  const gw = Math.max(1, Math.round(w / 8)), gh = Math.max(1, Math.round(h / 8));
+  if (glowA && glowA.w === gw && glowA.h === gh) return;
+  glowA = target(gw, gh); glowB = target(gw, gh);
+}
+
+function pass(prog, fb, w, h, setup) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.viewport(0, 0, w, h);
+  gl.useProgram(prog.p);
+  setup(prog.u);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+function bind(unit, tex, loc) {
+  gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(loc, unit);
+}
+
+function draw() {
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h) return false;
+  if (view.width !== w || view.height !== h) { view.width = w; view.height = h; }
+  resizeTargets(w, h);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, videoTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+  const mirror = facing === "user" && settings.mirror ? 1 : 0;
+
+  if (settings.look) {
+    pass(progs.extract, glowA.fb, glowA.w, glowA.h, (u) => {
+      bind(0, videoTex, u("src")); gl.uniform1f(u("mirror"), mirror); gl.uniform2f(u("texel"), 1 / w, 1 / h);
+    });
+    for (const [from, to, dx, dy] of [[glowA, glowB, 1, 0], [glowB, glowA, 0, 1]]) {
+      pass(progs.blur, to.fb, to.w, to.h, (u) => {
+        bind(0, from.tex, u("src")); gl.uniform1f(u("mirror"), 0); gl.uniform2f(u("dir"), dx * 1.3 / to.w, dy * 1.3 / to.h);
+      });
+    }
+  }
+  pass(progs.final, null, w, h, (u) => {
+    bind(0, videoTex, u("src")); bind(1, glowA.tex, u("glow"));
+    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("look"), settings.look ? 1 : 0);
+  });
+  return true;
+}
+
+// ---- 카메라 ----
+const video = document.createElement("video");
+video.playsInline = true; video.muted = true; video.setAttribute("playsinline", "");
+let stream = null;
+
+async function openCamera() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: facing, width: { ideal: 4032 }, height: { ideal: 3024 }, aspectRatio: { ideal: 4 / 3 } },
+  });
+  video.srcObject = stream;
+  await video.play();
+  updateInfo();
+}
+
+function loop() {
+  draw();
+  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(loop);
+  else requestAnimationFrame(loop);
+}
+
+function showGate(text, button) {
+  $("gate").hidden = false;
+  $("gate-text").textContent = text;
+  $("start").hidden = !button;
+}
+
+$("start").addEventListener("click", async () => {
+  try {
+    await openCamera();
+    $("gate").hidden = true;
+    $("shutter").disabled = false; $("flip").disabled = false;
+    loop();
+  } catch (e) {
+    showGate(e && e.name === "NotAllowedError"
+      ? "카메라 권한이 꺼져 있어요. 설정 › Safari › 카메라에서 '허용'으로 바꾼 뒤 다시 눌러 주세요."
+      : "카메라를 열지 못했어요. 다른 앱이 카메라를 쓰고 있지 않은지 확인해 주세요.", true);
+  }
+});
+
+$("flip").addEventListener("click", async () => {
+  $("flip").disabled = true;
+  facing = facing === "user" ? "environment" : "user";
+  try { await openCamera(); } catch { facing = facing === "user" ? "environment" : "user"; await openCamera().catch(() => {}); }
+  $("flip").disabled = false;
+});
+
+// ---- 찍기와 저장 ----
+let lastFile = null, lastURL = null;
+
+function encode(canvas) {
+  const long = Math.max(canvas.width, canvas.height);
+  let src = canvas;
+  if (settings.small && long > 2048) {
+    const s = 2048 / long;
+    src = document.createElement("canvas");
+    src.width = Math.round(canvas.width * s); src.height = Math.round(canvas.height * s);
+    const ctx = src.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(canvas, 0, 0, src.width, src.height);
+  }
+  return new Promise((resolve) => src.toBlob((b) => resolve({ blob: b, w: src.width, h: src.height }), "image/jpeg", settings.small ? 0.5 : 0.92));
+}
+
+function sizeText(bytes) {
+  return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
+}
+
+$("shutter").addEventListener("click", async () => {
+  if (!draw()) return;
+  const flash = $("flash");
+  flash.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.remove("on")));
+  $("shutter").disabled = true;
+  const { blob, w, h } = await encode(view);
+  $("shutter").disabled = false;
+  if (!blob) { lastInfo = "저장하지 못했어요"; updateInfo(); return; }
+
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  lastFile = new File([blob], `ulla-${stamp}.jpg`, { type: "image/jpeg" });
+  if (lastURL) URL.revokeObjectURL(lastURL);
+  lastURL = URL.createObjectURL(blob);
+  lastInfo = `${w}×${h} · ${sizeText(blob.size)}`;
+  updateInfo();
+  $("thumb").style.backgroundImage = `url(${lastURL})`;
+  $("thumb").disabled = false;
+  openSheet();
+});
+
+function openSheet() {
+  $("shot").src = lastURL;
+  const canShare = navigator.canShare && navigator.canShare({ files: [lastFile] });
+  $("save").hidden = !canShare;
+  $("sheet-hint").textContent = canShare
+    ? "'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요."
+    : "사진을 길게 눌러 '사진 앱에 저장'을 고르세요.";
+  $("sheet").hidden = false;
+}
+$("thumb").addEventListener("click", () => lastFile && openSheet());
+$("close").addEventListener("click", () => { $("sheet").hidden = true; });
+$("save").addEventListener("click", async () => {
+  try { await navigator.share({ files: [lastFile] }); $("sheet").hidden = true; } catch {}
+});
+
+// ---- 시작 전 확인 ----
+if (!gl) {
+  showGate("이 브라우저는 지원하지 않아요. 아이폰 Safari 최신 버전에서 열어 주세요.", false);
+} else if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+  showGate("카메라를 쓰려면 https 주소로 열어야 해요. 받은 파일 말고 링크로 열어 주세요.", false);
+} else {
+  setupGL();
+}
+</script>
+</body>
+</html>
