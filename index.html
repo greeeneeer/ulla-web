@@ -141,7 +141,7 @@ button:disabled { opacity: .4; cursor: default; }
     <div class="rec" id="rec" hidden>● 0:00</div>
     <div class="gate" id="gate">
       <strong>후보정 없이 찍는 카메라</strong>
-      <p id="gate-text">카메라 영상의 한 장면을 그대로 저장해요. 기본 카메라처럼 여러 장을 합성하지 않아요.</p>
+      <p id="gate-text">카메라 영상의 한 장면을 그대로 저장해. 기본 카메라처럼 여러 장을 합성하지 않아.</p>
       <button class="primary" id="start">카메라 켜기</button>
     </div>
   </main>
@@ -151,7 +151,7 @@ button:disabled { opacity: .4; cursor: default; }
     <input type="range" id="ev" min="-0.5" max="1.5" step="0.1" value="0.3">
     <output id="ev-val" for="ev">+0.3</output>
   </div>
-  <div class="info" id="info">기본카메라 후보정 없이 그대로 저장돼요</div>
+  <div class="info" id="info">기본카메라 후보정 없이 그대로 저장돼</div>
   <footer class="bottom">
     <button class="thumb" id="thumb" aria-label="마지막 사진 보기" disabled></button>
     <button class="shutter" id="shutter" aria-label="찍기" disabled></button>
@@ -169,7 +169,7 @@ button:disabled { opacity: .4; cursor: default; }
   <img id="shot" alt="찍은 사진">
   <video id="clip" controls playsinline hidden></video>
   <p class="meta" id="shot-info"></p>
-  <p class="hint" id="sheet-hint">'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요.</p>
+  <p class="hint" id="sheet-hint">'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 골라 줘.</p>
   <div class="row">
     <button id="close">닫기</button>
     <button class="primary" id="save">사진에 저장</button>
@@ -210,7 +210,7 @@ let lastInfo = null;
 function updateInfo() {
   $("t-mirror").disabled = facing !== "user";
   $("ev-row").hidden = !settings.look;
-  $("info").textContent = (settings.look ? "아이폰 7 느낌으로 저장돼요" : "기본카메라 후보정 없이 그대로 저장돼요");
+  $("info").textContent = (settings.look ? "\u00a0" : "기본카메라 후보정 없이 그대로 저장돼");
 }
 updateInfo();
 
@@ -539,8 +539,8 @@ $("start").addEventListener("click", async () => {
     loop();
   } catch (e) {
     showGate(e && e.name === "NotAllowedError"
-      ? "카메라 권한이 꺼져 있어요. 설정 › Safari › 카메라에서 '허용'으로 바꾼 뒤 다시 눌러 주세요."
-      : "카메라를 열지 못했어요. 다른 앱이 카메라를 쓰고 있지 않은지 확인해 주세요.", true);
+      ? "카메라 권한이 꺼져 있어. 설정 › Safari › 카메라에서 '허용'으로 바꾼 뒤 다시 눌러 줘."
+      : "카메라를 못 열었어. 다른 앱이 카메라를 쓰고 있지 않은지 확인해 줘.", true);
   }
 });
 
@@ -613,14 +613,14 @@ $("shutter").addEventListener("click", async () => {
   flash.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => flash.classList.remove("on")));
   const shot = snapshot();
   if (!shot) {
-    $("info").textContent = "사진을 만들지 못했어요. 페이지를 새로고침한 뒤 다시 찍어 주세요.";
+    $("info").textContent = "사진을 못 만들었어. 페이지를 새로고침한 뒤 다시 찍어 줘.";
     return;
   }
   $("shutter").disabled = true;
   const { blob, w, h } = await encode(shot, (deviceAngle - screenAngle() + 360) % 360);
   release(shot);
   $("shutter").disabled = false;
-  if (!blob) { $("info").textContent = "사진을 만들지 못했어요. '용량 줄이기'를 켜고 다시 찍어 주세요."; return; }
+  if (!blob) { $("info").textContent = "사진을 못 만들었어. '용량 줄이기'를 켜고 다시 찍어 줘."; return; }
 
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   showResult(new File([blob], `ulla-${stamp}.jpg`, { type: "image/jpeg" }), `${w}×${h} · ${sizeText(blob.size)}`);
@@ -679,7 +679,7 @@ function toggleRecording() {
   stream.getAudioTracks().forEach((t) => out.addTrack(t));
   const mime = pickMime();
   try { recorder = new MediaRecorder(out, mime ? { mimeType: mime } : undefined); }
-  catch { if (recCanvas) { release(recCanvas); recCanvas = null; } $("info").textContent = "이 브라우저에서는 동영상을 찍을 수 없어요."; return; }
+  catch { if (recCanvas) { release(recCanvas); recCanvas = null; } $("info").textContent = "이 브라우저에서는 동영상을 못 찍어."; return; }
   const chunks = [];
   const w = (recCanvas || view).width, h = (recCanvas || view).height;
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
@@ -693,7 +693,7 @@ function toggleRecording() {
     $("shutter").classList.remove("recording");
     $("flip").disabled = false;
     const blob = new Blob(chunks, { type });
-    if (!blob.size) { $("info").textContent = "동영상을 만들지 못했어요. 다시 찍어 주세요."; return; }
+    if (!blob.size) { $("info").textContent = "동영상을 못 만들었어. 다시 찍어 줘."; return; }
     const ext = type.includes("webm") ? "webm" : "mp4";
     const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
     showResult(new File([blob], `ulla-${stamp}.${ext}`, { type: type.split(";")[0] }), `${w}×${h} · ${seconds}초 · ${sizeText(blob.size)}`);
@@ -720,8 +720,8 @@ function openSheet() {
   $("save").hidden = !canShare;
   $("save").textContent = isVideo ? "동영상 저장" : "사진에 저장";
   $("sheet-hint").textContent = canShare
-    ? (isVideo ? "'동영상 저장'을 누르고 공유 창에서 '동영상 저장'을 고르세요." : "'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요.")
-    : (isVideo ? "이 브라우저에서는 바로 저장할 수 없어요." : "사진을 길게 눌러 '사진 앱에 저장'을 고르세요.");
+    ? (isVideo ? "'동영상 저장'을 누르고 공유 창에서 '동영상 저장'을 골라 줘." : "'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 골라 줘.")
+    : (isVideo ? "이 브라우저에서는 바로 저장할 수 없어." : "사진을 길게 눌러 '사진 앱에 저장'을 골라 줘.");
   $("sheet").hidden = false;
 }
 $("thumb").addEventListener("click", () => lastFile && openSheet());
@@ -732,9 +732,9 @@ $("save").addEventListener("click", async () => {
 
 // ---- 시작 전 확인 ----
 if (!gl) {
-  showGate("이 브라우저는 지원하지 않아요. 아이폰 Safari 최신 버전에서 열어 주세요.", false);
+  showGate("이 브라우저는 지원 안 해. 아이폰 Safari 최신 버전에서 열어 줘.", false);
 } else if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-  showGate("카메라를 쓰려면 https 주소로 열어야 해요. 받은 파일 말고 링크로 열어 주세요.", false);
+  showGate("카메라를 쓰려면 https 주소로 열어야 해. 받은 파일 말고 링크로 열어 줘.", false);
 } else {
   setupGL();
 }
