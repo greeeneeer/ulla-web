@@ -74,12 +74,13 @@ button:disabled { opacity: .4; cursor: default; }
   padding: 12px 22px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 700;
 }
 
-.glow-row {
+.tint-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 20px 0; font-size: 13px; font-weight: 600;
 }
-.glow-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
-.glow-row output { width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.tint-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.tint-row .pink { color: #ff9cc0; }
+.tint-row .yellow { color: #ffd166; }
 .info { text-align: center; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; padding: 10px 16px 12px; min-height: 1.4em; }
 .bottom { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 28px; }
 .thumb { width: 52px; height: 52px; border-radius: 10px; background: var(--surface) center / cover no-repeat; justify-self: start; }
@@ -125,10 +126,10 @@ button:disabled { opacity: .4; cursor: default; }
     </div>
   </main>
 
-  <div class="glow-row" id="glow-row" hidden>
-    <label for="glow">빛 번짐</label>
-    <input type="range" id="glow" min="0" max="3" step="0.1" value="1.5">
-    <output id="glow-val" for="glow">1.5</output>
+  <div class="tint-row" id="tint-row" hidden>
+    <span class="pink" aria-hidden="true">핑크</span>
+    <input type="range" id="tint" min="-1" max="1" step="0.1" value="0" aria-label="색감: 핑크에서 노랑까지">
+    <span class="yellow" aria-hidden="true">노랑</span>
   </div>
   <div class="info" id="info">보정 없이 찍은 그대로 저장돼요</div>
   <footer class="bottom">
@@ -156,8 +157,9 @@ const $ = (id) => document.getElementById(id);
 const view = $("view");
 
 // ---- 설정 (이 기기에만 기억) ----
-const settings = { look: false, mirror: true, small: false, glow: 1.5 };
+const settings = { look: false, mirror: true, small: false, tint: 0 };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("ulla") || "{}")); } catch {}
+delete settings.glow;
 function saveSettings() { try { localStorage.setItem("ulla", JSON.stringify(settings)); } catch {} }
 function bindToggle(id, key) {
   const el = $(id);
@@ -169,9 +171,9 @@ bindToggle("t-look", "look");
 bindToggle("t-mirror", "mirror");
 bindToggle("t-small", "small");
 {
-  const slider = $("glow");
-  const sync = () => { slider.value = settings.glow; $("glow-val").textContent = Number(settings.glow).toFixed(1); };
-  slider.addEventListener("input", () => { settings.glow = Number(slider.value); saveSettings(); sync(); });
+  const slider = $("tint");
+  const sync = () => { slider.value = settings.tint; };
+  slider.addEventListener("input", () => { settings.tint = Number(slider.value); saveSettings(); });
   sync();
 }
 
@@ -179,7 +181,7 @@ let facing = "user";
 let lastInfo = null;
 function updateInfo() {
   $("t-mirror").disabled = facing !== "user";
-  $("glow-row").hidden = !settings.look;
+  $("tint-row").hidden = !settings.look;
   $("info").textContent = (settings.look ? "아이폰 7 느낌으로 저장돼요" : "보정 없이 찍은 그대로 저장돼요");
 }
 updateInfo();
@@ -223,27 +225,34 @@ void main() {
 // 아이폰 7 모드: 앱(Core Image)과 같은 계산 순서. 노출·번짐·색 행렬은 선형 빛에서, 톤 커브는 sRGB 값에서 한다.
 const FINAL = `#version 300 es
 precision highp float;
-in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; uniform float gain; uniform float glowAmt; out vec4 o;
+in vec2 uv; in vec2 suv; uniform sampler2D src; uniform sampler2D glow; uniform float look; uniform float gain; uniform vec3 tintM; out vec4 o;
 vec3 toLin(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c)); }
 vec3 toSrgb(vec3 c) { c = clamp(c, 0.0, 1.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
 float curve(float x) {
-  if (x < 0.25) return mix(0.02, 0.25, x / 0.25);
-  if (x < 0.5) return mix(0.25, 0.52, (x - 0.25) / 0.25);
-  if (x < 0.75) return mix(0.52, 0.78, (x - 0.5) / 0.25);
-  return mix(0.78, 1.0, (x - 0.75) / 0.25);
+  // 밝은 부분을 더 끌어올려 맨 위 6%쯤은 하얗게 날아가게 한다.
+  if (x < 0.25) return mix(0.02, 0.26, x / 0.25);
+  if (x < 0.5) return mix(0.26, 0.54, (x - 0.25) / 0.25);
+  if (x < 0.75) return mix(0.54, 0.83, (x - 0.5) / 0.25);
+  return mix(0.83, 1.06, (x - 0.75) / 0.25);
 }
 void main() {
   vec3 c = texture(src, uv).rgb;
   if (look > 0.5) {
     vec3 lin = toLin(c) * gain;
-    vec3 g = toLin(texture(glow, suv).rgb) * vec3(0.55, 0.42, 0.25) * glowAmt;
+    vec3 g = toLin(texture(glow, suv).rgb) * vec3(0.55, 0.42, 0.25);
     lin = 1.0 - (1.0 - clamp(lin, 0.0, 1.0)) * (1.0 - clamp(g, 0.0, 1.0));
     c = toSrgb(lin);
     c = vec3(curve(c.r), curve(c.g), curve(c.b));
-    c = toSrgb(toLin(c) * vec3(1.04, 1.01, 0.89));
+    c = toSrgb(toLin(clamp(c, 0.0, 1.0)) * tintM);
   }
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
+// 색감 슬라이더 값을 R·G·B 배율로 (앱과 같은 값). 0은 크림빛, -1은 분홍빛, 1은 노란빛.
+function tintMatrix(t) {
+  const base = [1.04, 1.01, 0.89], end = t < 0 ? [1.07, 0.94, 0.97] : [1.06, 1.03, 0.78];
+  const k = Math.min(Math.abs(t), 1);
+  return base.map((b, i) => b + (end[i] - b) * k);
+}
 // 앱이 카메라 노출을 +0.3 EV 올리는 것을 선형 빛에 곱해 흉내 낸다.
 let EV_GAIN = Math.pow(2, 0.3);
 
@@ -330,7 +339,7 @@ function draw() {
   }
   pass(progs.final, null, w, h, (u) => {
     bind(0, videoTex, u("src")); bind(1, glowA.tex, u("glow"));
-    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("look"), settings.look ? 1 : 0); gl.uniform1f(u("gain"), EV_GAIN); gl.uniform1f(u("glowAmt"), settings.glow);
+    gl.uniform1f(u("mirror"), mirror); gl.uniform1f(u("look"), settings.look ? 1 : 0); gl.uniform1f(u("gain"), EV_GAIN); gl.uniform3fv(u("tintM"), tintMatrix(settings.tint));
   });
   return true;
 }
