@@ -96,6 +96,7 @@ button:disabled { opacity: .4; cursor: default; }
 .sheet .row button { flex: 1; padding: 14px; border-radius: 14px; background: var(--surface); font-weight: 700; }
 .sheet .row .primary { background: var(--accent); }
 .sheet .hint { margin: 0; text-align: center; color: var(--muted); font-size: 13px; }
+.sheet .meta { margin: 0; text-align: center; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .flash, .shutter { transition: none; } }
 </style>
 </head>
@@ -130,6 +131,7 @@ button:disabled { opacity: .4; cursor: default; }
 
 <div class="sheet" id="sheet" hidden>
   <img id="shot" alt="찍은 사진">
+  <p class="meta" id="shot-info"></p>
   <p class="hint" id="sheet-hint">'사진에 저장'을 누르고 공유 창에서 '이미지 저장'을 고르세요.</p>
   <div class="row">
     <button id="close">닫기</button>
@@ -160,7 +162,7 @@ let facing = "user";
 let lastInfo = null;
 function updateInfo() {
   $("t-mirror").disabled = facing !== "user";
-  $("info").textContent = lastInfo ?? (settings.look ? "아이폰 7 느낌으로 저장돼요" : "보정 없이 찍은 그대로 저장돼요");
+  $("info").textContent = (settings.look ? "아이폰 7 느낌으로 저장돼요" : "보정 없이 찍은 그대로 저장돼요");
 }
 updateInfo();
 
@@ -427,14 +429,13 @@ $("shutter").addEventListener("click", async () => {
   $("shutter").disabled = true;
   const { blob, w, h } = await encode(view, (deviceAngle - screenAngle() + 360) % 360);
   $("shutter").disabled = false;
-  if (!blob) { lastInfo = "저장하지 못했어요"; updateInfo(); return; }
+  if (!blob) { $("info").textContent = "사진을 만들지 못했어요. 다시 찍어 주세요."; return; }
 
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   lastFile = new File([blob], `ulla-${stamp}.jpg`, { type: "image/jpeg" });
   if (lastURL) URL.revokeObjectURL(lastURL);
   lastURL = URL.createObjectURL(blob);
   lastInfo = `${w}×${h} · ${sizeText(blob.size)}`;
-  updateInfo();
   $("thumb").style.backgroundImage = `url(${lastURL})`;
   $("thumb").disabled = false;
   openSheet();
@@ -442,6 +443,7 @@ $("shutter").addEventListener("click", async () => {
 
 function openSheet() {
   $("shot").src = lastURL;
+  $("shot-info").textContent = lastInfo;
   const canShare = navigator.canShare && navigator.canShare({ files: [lastFile] });
   $("save").hidden = !canShare;
   $("sheet-hint").textContent = canShare
